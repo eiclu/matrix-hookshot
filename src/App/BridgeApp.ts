@@ -10,6 +10,10 @@ import BotUsersManager from "../managers/BotUsersManager";
 import * as Sentry from "@sentry/node";
 import { UserTokenStore } from "../tokens/UserTokenStore";
 import { WebhookTransformer } from "../generic/WebhookTransformer";
+import {
+  cryptoStoreMismatchHelp,
+  isCryptoStoreMismatchError,
+} from "../CryptoStoreUtils";
 
 Logger.configure({ console: "info" });
 const log = new Logger("App");
@@ -29,6 +33,18 @@ export async function start(
   LogService.setLogger(Logger.botSdkLogger);
 
   const { appservice, storage } = getAppservice(config, registration);
+
+  const cryptoStoragePath = config.encryption?.storagePath;
+  if (cryptoStoragePath) {
+    // Crypto setup failures are rethrown by the bot SDK as unhandled
+    // rejections, which stop the process. We can't prevent that, but we can
+    // explain how to recover from the most common cause.
+    process.on("uncaughtExceptionMonitor", (err) => {
+      if (isCryptoStoreMismatchError(err)) {
+        log.error(cryptoStoreMismatchHelp(cryptoStoragePath));
+      }
+    });
+  }
 
   if (!config.queue) {
     const matrixSender = new MatrixSender(config, appservice);

@@ -1,11 +1,10 @@
-import { rm } from "fs/promises";
-
 import { BridgeConfig, parseRegistrationFile } from "../config/Config";
 import { Logger } from "matrix-appservice-bridge";
 import { LogService, MatrixClient } from "matrix-bot-sdk";
 import { getAppservice } from "../Appservice";
 import BotUsersManager from "../managers/BotUsersManager";
 import { IBridgeStorageProvider } from "../stores/StorageProvider";
+import { emptyDirectory } from "../CryptoStoreUtils";
 
 const log = new Logger("ResetCryptoStore");
 
@@ -95,8 +94,13 @@ async function start() {
 
   if (config.encryption?.storagePath) {
     try {
-      await rm(config.encryption.storagePath, { recursive: true, force: true });
-      log.info("Removed crypto store from disk");
+      // Only empty the directory, as it may be a mount point (e.g. a Docker
+      // volume) which cannot be removed.
+      if (await emptyDirectory(config.encryption.storagePath)) {
+        log.info("Removed crypto store from disk");
+      } else {
+        log.info("No crypto store found on disk");
+      }
     } catch (ex) {
       log.error("Failed to remove crypto store from disk", ex);
     }

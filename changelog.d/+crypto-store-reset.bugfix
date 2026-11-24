@@ -1,0 +1,1 @@
+Fix `start:resetcrypto` failing with `EBUSY` when the crypto store directory is a mount point (e.g. a Docker volume), and log recovery instructions when Hookshot fails to start because its crypto store is out of sync with the homeserver.
