@@ -1,14 +1,9 @@
 import { BridgeConfig, parseRegistrationFile } from "../config/Config";
 import { Logger } from "matrix-appservice-bridge";
-import { LogService, MatrixClient } from "matrix-bot-sdk";
-import { getAppservice } from "../Appservice";
-import BotUsersManager from "../managers/BotUsersManager";
-import { IBridgeStorageProvider } from "../stores/StorageProvider";
-import { emptyDirectory } from "../CryptoStoreUtils";
+import { LogService } from "matrix-bot-sdk";
+import { resetCryptoStore } from "../CryptoStoreReset";
 
 const log = new Logger("ResetCryptoStore");
-
-let bridgeStorage: IBridgeStorageProvider | undefined;
 
 async function start() {
   const { configFiles, registrationFile } =
@@ -23,94 +18,10 @@ async function start() {
   });
   LogService.setLogger(Logger.botSdkLogger);
 
-  const { appservice, storage, cryptoStorage } = getAppservice(
-    config,
-    registration,
-  );
-  bridgeStorage = storage;
-  if (!cryptoStorage) {
-    log.info(
-      `Encryption is not enabled in the configuration file, so there is no encryption state to be reset`,
-    );
-    return;
-  }
-
-  const botUsersManager = new BotUsersManager(config, appservice);
-
-  for (const botUser of botUsersManager.botUsers) {
-    try {
-      const userStorage = storage.storageForUser?.(botUser.userId);
-      if (!userStorage) {
-        log.warn(`No storage for ${botUser.userId}`);
-        continue;
-      }
-      const accessToken = await userStorage?.readValue("accessToken");
-      if (!accessToken) {
-        log.debug(
-          `No access token for ${botUser.userId}: no session to remove`,
-        );
-        continue;
-      }
-
-      const userCryptoStorage = cryptoStorage?.storageForUser(botUser.userId);
-      if (!userCryptoStorage) {
-        log.warn(`No crypto storage for ${botUser.userId}`);
-        continue;
-      }
-      const deviceId = await userCryptoStorage?.getDeviceId();
-      if (!deviceId) {
-        log.debug(
-          `No crypto device ID for ${botUser.userId}: no crypto state to remove`,
-        );
-        continue;
-      }
-
-      const client = new MatrixClient(
-        config.bridge.url,
-        accessToken,
-        userStorage,
-        userCryptoStorage,
-      );
-      await client.doRequest("POST", "/_matrix/client/v3/logout", {
-        user_id: botUser.userId,
-        // Send both the stable and unstable device_id params, mirroring
-        // MatrixClient's own impersonation handling, for compatibility with
-        // homeservers old and new (see matrix-org/matrix-hookshot#1398).
-        device_id: deviceId,
-        "org.matrix.msc3202.device_id": deviceId,
-      });
-      log.info(`Logged out crypto device for ${botUser.userId}`);
-
-      try {
-        await userStorage.storeValue("accessToken", "");
-        log.info(`Deleted access token for ${botUser.userId}`);
-      } catch (ex: unknown) {
-        log.error(`Failed to delete access token for ${botUser.userId}`, ex);
-      }
-    } catch (ex: unknown) {
-      log.error(`Failed to log out crypto device for ${botUser.userId}`, ex);
-    }
-  }
-
-  if (config.encryption?.storagePath) {
-    try {
-      // Only empty the directory, as it may be a mount point (e.g. a Docker
-      // volume) which cannot be removed.
-      if (await emptyDirectory(config.encryption.storagePath)) {
-        log.info("Removed crypto store from disk");
-      } else {
-        log.info("No crypto store found on disk");
-      }
-    } catch (ex) {
-      log.error("Failed to remove crypto store from disk", ex);
-    }
-  }
+  await resetCryptoStore(config, registration);
 }
 
-start()
-  .catch((ex) => {
-    log.error("ResetCryptoStore encountered an error and has stopped:", ex);
-  })
-  .finally(() => {
-    bridgeStorage?.disconnect?.();
-  });
+start().catch((ex) => {
+  log.error("ResetCryptoStore encountered an error and has stopped:", ex);
+  process.exitCode = 1;
+});

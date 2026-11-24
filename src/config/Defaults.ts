@@ -170,6 +170,7 @@ export const DefaultConfigRoot: BridgeConfigRoot = {
   },
   encryption: {
     storagePath: "./cryptostore",
+    autoResetOnKeyConflict: false,
   },
   connections: [
     {

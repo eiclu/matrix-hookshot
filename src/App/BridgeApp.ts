@@ -13,10 +13,18 @@ import { WebhookTransformer } from "../generic/WebhookTransformer";
 import {
   cryptoStoreMismatchHelp,
   isCryptoStoreMismatchError,
+  markCryptoStoreResetRequired,
 } from "../CryptoStoreUtils";
+import { runPendingCryptoStoreAutoReset } from "../CryptoStoreReset";
 
 Logger.configure({ console: "info" });
 const log = new Logger("App");
+
+/**
+ * Set up by start() when encryption is enabled. Handles errors that stop the
+ * bridge because its crypto store is out of sync with the homeserver.
+ */
+let handleFatalCryptoStoreError: ((err: unknown) => void) | undefined;
 
 export async function start(
   config: BridgeConfig,
@@ -32,18 +40,46 @@ export async function start(
   });
   LogService.setLogger(Logger.botSdkLogger);
 
+  const autoResetCryptoStore = !!config.encryption?.autoResetOnKeyConflict;
+  if (autoResetCryptoStore) {
+    // Must happen before the appservice and its crypto storage are created.
+    await runPendingCryptoStoreAutoReset(config, registration);
+  }
+
   const { appservice, storage } = getAppservice(config, registration);
 
   const cryptoStoragePath = config.encryption?.storagePath;
   if (cryptoStoragePath) {
+    let handled = false;
+    handleFatalCryptoStoreError = (err) => {
+      if (handled || !isCryptoStoreMismatchError(err)) {
+        return;
+      }
+      handled = true;
+      if (autoResetCryptoStore) {
+        try {
+          markCryptoStoreResetRequired(
+            cryptoStoragePath,
+            (err as Error).message ?? String(err),
+          );
+          log.error(
+            "The crypto store is out of sync with the homeserver. It will be reset automatically when Hookshot is next started.",
+          );
+          return;
+        } catch (ex) {
+          log.error("Failed to flag the crypto store for a reset", ex);
+        }
+      }
+      log.error(cryptoStoreMismatchHelp(cryptoStoragePath));
+    };
     // Crypto setup failures are rethrown by the bot SDK as unhandled
     // rejections, which stop the process. We can't prevent that, but we can
-    // explain how to recover from the most common cause.
-    process.on("uncaughtExceptionMonitor", (err) => {
-      if (isCryptoStoreMismatchError(err)) {
-        log.error(cryptoStoreMismatchHelp(cryptoStoragePath));
-      }
-    });
+    // explain how to recover from the most common cause, or flag the crypto
+    // store to be reset automatically on the next start. Depending on timing,
+    // the same error may instead reach the catch handler of startFromFile.
+    process.on("uncaughtExceptionMonitor", (err) =>
+      handleFatalCryptoStoreError?.(err),
+    );
   }
 
   if (!config.queue) {
@@ -111,6 +147,7 @@ async function startFromFile() {
 
 if (require.main === module) {
   startFromFile().catch((ex) => {
+    handleFatalCryptoStoreError?.(ex);
     if (Logger.root.configured) {
       log.error("BridgeApp encountered an error and has stopped:", ex);
     } else {

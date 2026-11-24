@@ -1,0 +1,1 @@
+Add the `encryption.autoResetOnKeyConflict` option, which resets the crypto store automatically on the next start when Hookshot exits because its crypto store is out of sync with the homeserver ("One time key ... already exists").

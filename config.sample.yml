@@ -49,6 +49,9 @@ listeners:
 #  storagePath:
 #    # Path to the directory used to store encryption files. These files must be persist between restarts of the service.
 #    ./cryptostore
+#  autoResetOnKeyConflict:
+#    # (Optional) Automatically reset the crypto store if it is found to be out of sync with the homeserver (e.g. after it was restored from a backup), instead of failing to start. Messages encrypted for the old device can no longer be decrypted afterwards. Defaults to false.
+#    false
 
 #permissions:
 #  # (Optional) Permissions for using the bridge. See docs/setup.md#permissions for help
