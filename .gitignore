@@ -32,3 +32,6 @@ devenv.local.nix
 
 # direnv
 .direnv
+
+# Preloaded native libraries (see vendor/matrix-sdk-crypto/README.md)
+/vendor/matrix-sdk-crypto/*/

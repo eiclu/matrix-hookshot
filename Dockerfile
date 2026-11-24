@@ -22,9 +22,13 @@ WORKDIR /src
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY modules ./modules
+# Optional prebuilt native libraries, for build hosts without GitHub access.
+# See vendor/matrix-sdk-crypto/README.md
+COPY vendor/matrix-sdk-crypto /vendor/matrix-sdk-crypto
+COPY scripts/preload-crypto-libs.sh /usr/local/bin/
 RUN corepack enable pnpm
 RUN pnpm config set store-dir /cache/pnpm-store
-RUN pnpm install --frozen-lockfile
+RUN preload-crypto-libs.sh /vendor/matrix-sdk-crypto --frozen-lockfile
 
 COPY --exclude=Dockerfile . ./
 
@@ -40,10 +44,12 @@ RUN apt-get update && apt-get install -y openssl ca-certificates
 
 COPY --from=builder /src/pnpm-lock.yaml /src/package.json /src/pnpm-workspace.yaml ./
 COPY --from=builder /cache/pnpm-store /cache/pnpm-store
+COPY --from=builder /vendor/matrix-sdk-crypto /vendor/matrix-sdk-crypto
+COPY --from=builder /usr/local/bin/preload-crypto-libs.sh /usr/local/bin/
 RUN corepack enable pnpm
 RUN pnpm config set store-dir /cache/pnpm-store
 
-RUN NODE_ENV=production pnpm install --frozen-lockfile && pnpm store prune
+RUN NODE_ENV=production preload-crypto-libs.sh /vendor/matrix-sdk-crypto --frozen-lockfile && pnpm store prune && rm -rf /vendor
 
 COPY --from=builder /src/lib ./
 COPY --from=builder /src/public ./public
